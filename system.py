@@ -1,11 +1,15 @@
-import time
-from datetime import datetime
 import asyncio
+from datetime import datetime
+
+
 from pymata4 import pymata4
 import numpy as np
 import matplotlib.pyplot as plt
+
+
 from libs.LiquidCrystal import LiquidCrystal
 import dig_calls
+
 
 SEND_DIG = False
 
@@ -31,13 +35,12 @@ CB_PIN = 1
 CB_VALUE = 2
 CB_TIME = 3
 
-loop = asyncio.get_event_loop()
-
 def button_press_handler(data):
     '''
     Pymata callback for button
     '''
     loop.create_task(button_press_coroutine(data))
+
 
 async def button_press_coroutine(data):
     '''
@@ -83,7 +86,7 @@ async def potentiometer_log_handler(data):
     value, date = data
     converted_value = value * 4000 / 800 / 0.25
     
-    date_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(date))
+    date_time = datetime.fromtimestamp(date).strftime('%Y-%m-%d %H:%M:%S')
     print(f'Pin: {POTENTIOMETER_PIN} Value: {value} Time Stamp: {date_time}')
 
     if SEND_DIG:
@@ -93,7 +96,11 @@ async def potentiometer_log_handler(data):
         except AssertionError:
             print('sending GenericStatusRecord failed')
 
+
 async def distance_log_handler(data):
+    '''
+    Callback for logging the distance measurements
+    '''
     readings = np.array([reading for reading in data if reading[1] != 0 and reading[0] < 200])
     distances = readings[:,0]
     timestamps = readings[:, 1]
@@ -121,10 +128,11 @@ async def distance_log_handler(data):
 
     plt.savefig('logs/distance_logs.jpg')
 
-    # send max errors, last value
-
 
 async def curve_logging_helper(values, timestamps, max_diffs):
+    '''
+    Recursive helper function to find values with the maximum error
+    '''
     if len(values) == 1 or len(max_diffs) >= POLL_COUNT * CYCLE_TIME:
         return max_diffs
     slope = (values[-1] - values[0]) / (timestamps[-1] - timestamps[0])
@@ -137,6 +145,7 @@ async def curve_logging_helper(values, timestamps, max_diffs):
         max_diffs = await curve_logging_helper(values[:i+1], timestamps[:i+1], max_diffs)
         max_diffs = await curve_logging_helper(values[i:], timestamps[i:], max_diffs)
     return max_diffs
+
 
 async def main(board):
     '''
@@ -154,20 +163,18 @@ async def main(board):
         distance_reading = board.sonar_read(TRIG_PIN)
         distance_readings.append(distance_reading)
 
-        # loop.create_task(acceleration_check(distance_readings))
-
         if ticks % POLL_COUNT == 0 and ticks != 0:
             print('Logging')
-            # loop.create_task(potentiometer_log_handler(potentiometer_reading))
-            print(distance_readings)
+            loop.create_task(potentiometer_log_handler(potentiometer_reading))
             loop.create_task(distance_log_handler(distance_readings))
             distance_readings = []
 
         ticks += 1
         await asyncio.sleep(CYCLE_TIME)
 
+
+# Authentication calls for MyAdmin and DIG
 if SEND_DIG:
-    # Authentication calls for MyAdmin and DIG
     try:
         MyAdmin_authenticate_flag, userId, sessionId = dig_calls.authenticate_MyAdmin()
         assert MyAdmin_authenticate_flag
@@ -177,12 +184,15 @@ if SEND_DIG:
     except AssertionError:
         print('Authentication Error')
 
-# Initialize board and state
+
+# Initialization
+loop = asyncio.get_event_loop()
 board = pymata4.Pymata4()
 state = {
     'ignition': False,
     'distance': 0
 }
+
 
 # Run the program
 try:

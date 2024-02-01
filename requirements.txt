@@ -1,0 +1,4 @@
+pymata4
+requests
+pandas
+numpy

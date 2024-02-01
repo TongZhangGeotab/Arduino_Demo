@@ -11,12 +11,10 @@ from libs.LiquidCrystal import LiquidCrystal
 import dig_calls
 
 
-SEND_DIG = False
-
+# Timing constants
 CYCLE_TIME = 0.1
 POLL_COUNT_DISTANCE = 100
 POLL_COUNT_POTENTIOMETER = 25
-SERIAL_NO = 'CXF7216F55ED'
 
 # Arduino pins
 BUTTON_PIN = 12
@@ -27,7 +25,9 @@ IGNITION_LED_PIN = 7
 SPEEDING_PIN = 6
 SPEEDING_ABOVE_MAX_PIN = 5
 
-# Message codes
+# DIG constants and message codes
+SEND_DIG = False
+SERIAL_NO = 'CXF7216F55ED'
 IGNITION_CODE = 10000
 ENGINE_SPEED_CODE = 107
 ODOMETER_CODE = 5
@@ -39,6 +39,7 @@ CB_PIN_MODE = 0
 CB_PIN = 1
 CB_VALUE = 2
 CB_TIME = 3
+
 
 def button_press_handler(data):
     '''
@@ -52,8 +53,8 @@ async def button_press_coroutine(data):
     Actual callback for button
     '''
     # Log each button press with time stamp
-    date_time = datetime.fromtimestamp(data[CB_TIME]).strftime('%Y-%m-%d %H:%M:%S')
-    print(f'Pin: {data[CB_PIN]} Value: {data[CB_VALUE]} Time Stamp: {date_time}')
+    date_time = datetime.fromtimestamp(data[CB_TIME])
+    print(f'Pin: {data[CB_PIN]} Value: {data[CB_VALUE]} Time Stamp: {date_time.strftime("%Y-%m-%d %H:%M:%S")}')
 
     # On button press, check to make sure button is held for a time before sending DIG call
     if data[CB_VALUE] == 1:
@@ -65,7 +66,7 @@ async def button_press_coroutine(data):
                 ignition = False
                 break
         # Change the ignition state when the button is pressed
-        if ignition and board.digital_read(data[CB_PIN])[0] == 1:
+        if ignition and board.digital_read(data[CB_PIN])[0] == 1 and data[CB_TIME] - state['last_ignition'] > 1:
             if not state['ignition']:
                 print('Ignition On')
                 state['ignition'] = 1
@@ -73,12 +74,20 @@ async def button_press_coroutine(data):
                 print('Ignition Off')
                 state['ignition'] = 0
 
+            state['last_ignition'] = data[CB_TIME]
+
             board.digital_write(IGNITION_LED_PIN, state['ignition'])
             
             # DIG call
             if SEND_DIG:
                 try:
-                    res = dig_calls.send_GenericStatusRecord(token=token, serialNo=SERIAL_NO, code=IGNITION_CODE, value=state['ignition'], timestamp=datetime.now())
+                    res = dig_calls.send_GenericStatusRecord(
+                        token=token,
+                        serialNo=SERIAL_NO,
+                        code=IGNITION_CODE,
+                        value=state['ignition'],
+                        timestamp=date_time
+                    )
                     assert res
                 except AssertionError:
                     print('sending GeneritStatusRecord failed')
@@ -89,13 +98,18 @@ async def potentiometer_log_handler(data):
     Callback for logging potentiometer readings
     '''
     value, date = data
-    converted_value = value * 4000 / 800 / 0.25
+    converted_value = int(value * 4000 / 800 / 0.25)
     
     print(f'Pin: {POTENTIOMETER_PIN} Value: {value}')
 
     if SEND_DIG:
         try:
-            res = dig_calls.send_GenericStatusRecord(token=token, serialNo=SERIAL_NO, code=ENGINE_SPEED_CODE, value=converted_value, timestamp=datetime.now())
+            res = dig_calls.send_GenericStatusRecord(
+                token=token,
+                serialNo=SERIAL_NO,
+                code=ENGINE_SPEED_CODE,
+                value=converted_value,
+                timestamp=datetime.fromtimestamp(date))
             assert res
         except AssertionError:
             print('sending GenericStatusRecord failed')
@@ -115,8 +129,6 @@ async def distance_log_handler(data):
 
     velocities = np.diff(distances)
     ax2.plot(timestamps[1:], velocities, label='velocity', color = 'g')
-    # plt.plot(timestamps[2:], accelerations, label='acceleration', color='y')
-    # plt.legend()
     
     log_data = await curve_logging_helper(distances, timestamps, [])
     log_data.append([distances[-1], timestamps[-1]])
@@ -126,7 +138,12 @@ async def distance_log_handler(data):
 
         if SEND_DIG:
             try:
-                res = dig_calls.send_GenericStatusRecord(token=token, serialNo=SERIAL_NO, code=ODOMETER_CODE, value=int(log[0]), timestamp=datetime.fromtimestamp(log[1]))
+                res = dig_calls.send_GenericStatusRecord(
+                    token=token,
+                    serialNo=SERIAL_NO,
+                    code=ODOMETER_CODE,
+                    value=int(log[0] * 10),
+                    timestamp=datetime.fromtimestamp(log[1]))
                 assert res
             except AssertionError:
                 print('sending GenericStatusRecord failed')
@@ -153,6 +170,9 @@ async def curve_logging_helper(values, timestamps, max_diffs):
 
 
 def speeding_check(x1, x0):
+    '''
+    Checks the speed (from Ultrasonic sensor)
+    '''
     v1, t1 = x1
     v0, t0 = x0
 
@@ -160,33 +180,41 @@ def speeding_check(x1, x0):
         return False
     
     speed = abs(v1 - v0)
-    print(speed)
 
     if speed > 10:
+        board.digital_write(SPEEDING_PIN, 1)
         if speed > 20:
+            board.digital_write(SPEEDING_ABOVE_MAX_PIN, 1)
+            board.digital_write(SPEEDING_PIN, 0)
             code = SPEEDING_ABOVE_MAX_CODE
         else:
             code = SPEEDING_CODE
+            board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
 
-        if t1 - state['last_speeding'] > 2.5:
+        if t1 - state['last_speeding'] > 2:
             state['last_speeding'] = t1
             ax2.plot(t1, v1-v0, marker='o', markersize=5, color='m')
             print(f'Speeding at: {speed}')
 
             if SEND_DIG:
                 try:
-                    res = dig_calls.send_GenericStatusRecord(token=token, serialNo=SERIAL_NO, code=code, value=1, timestamp=datetime.now())
+                    res = dig_calls.send_GenericStatusRecord(
+                        token=token,
+                        serialNo=SERIAL_NO,
+                        code=code, value=1,
+                        timestamp=datetime.fromtimestamp(t1))
                     assert res
                 except AssertionError:
                     print('sending GenericStatusRecord failed')
-
-    return speed
+    else:
+        board.digital_write(SPEEDING_PIN, 0)
+        board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
 
 async def main(board):
     '''
     Main function
     '''
-    # board.set_pin_mode_digital_input(BUTTON_PIN, callback=button_press_handler)
+    board.set_pin_mode_digital_input(BUTTON_PIN, callback=button_press_handler)
     board.set_pin_mode_analog_input(POTENTIOMETER_PIN)
     board.set_pin_mode_sonar(TRIG_PIN, ECHO_PIN)
     board.set_pin_mode_digital_output(IGNITION_LED_PIN)
@@ -199,18 +227,13 @@ async def main(board):
         potentiometer_reading = board.analog_read(POTENTIOMETER_PIN)
         distance_reading = board.sonar_read(TRIG_PIN)
         distance_readings.append(distance_reading)
-        print(distance_reading)
+
+        lcd.clear()
+        lcd.set_cursor(6,0)
+        lcd.print(str(potentiometer_reading[0]))
 
         if len(distance_readings) > 2:
-            speed = speeding_check(distance_readings[-1], distance_readings[-2])
-            if speed > 20:
-                board.digital_write(SPEEDING_ABOVE_MAX_PIN, 1)
-            elif speed > 10:
-                board.digital_write(SPEEDING_PIN, 1)
-                board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
-            else:
-                board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
-                board.digital_write(SPEEDING_PIN, 0)
+            speeding_check(distance_readings[-1], distance_readings[-2])
 
         if ticks % POLL_COUNT_POTENTIOMETER == 0 and ticks != 0:
             loop.create_task(potentiometer_log_handler(potentiometer_reading))
@@ -238,10 +261,12 @@ if SEND_DIG:
 # Initialization
 loop = asyncio.get_event_loop()
 board = pymata4.Pymata4()
+lcd = LiquidCrystal(9, 8, 4, 3, 2, 13, board)
 state = {
     'ignition': False,
+    'last_ignition': 0,
     'distance': 0,
-    'last_speeding': -5,
+    'last_speeding': 0,
 }
 
 

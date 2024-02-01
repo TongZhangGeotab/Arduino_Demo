@@ -167,7 +167,7 @@ class LiquidCrystal:
     def print(self, text):
         for char in text:
             self.write(ord(char))
-            self.scroll_display_left()
+            # self.scroll_display_left()
 
     def print_char(self, char):
         self.write(ord(char))

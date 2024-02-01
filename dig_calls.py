@@ -1,16 +1,10 @@
-import time
-from datetime import datetime
-import pandas as pd
 import requests
 import json
-import numpy as np
-from getpass import getpass
 
 with open('config.json', 'r') as file:
     data = json.load(file)
-    userName = file['userName']
-    pw = file['pw']
-# pw = getpass("Enter MyAdmin Password: ")
+    userName = data['userName']
+    pw = data['pw']
 
 displayVerboseApiCallDetails = True
 
@@ -26,6 +20,9 @@ def ApiCall(requestUrl, json):
             return r
 
 def authenticate_MyAdmin():
+    '''
+    MyAdmin Authentication
+    '''
     # Set variables
     requestUrl = 'https://myadmin.geotab.com/v2/myadminapi.ashx'
     try:
@@ -68,9 +65,8 @@ def authenticate_MyAdmin():
 
 def authenticate_DIG():
     '''
-    title DIG Authentication and DIG Endpoint Selection
+    DIG Authentication and DIG Endpoint Selection
     '''
-
     # Set variables
     authUrl = urlHdr + "geotab.com:443/authentication/authenticate"
     obj = {"username": userName, "password": pw}
@@ -111,6 +107,9 @@ def authenticate_DIG():
     return res, token, tokenExpiration, refreshToken, refreshTokenExpiration
 
 def send_GenericStatusRecord(token, serialNo, code, value, timestamp):
+    '''
+    Send a status record through DIG
+    '''
     dateTime = timestamp.isoformat()+'Z'
 
     recordsUrl = urlHdr + "geotab.com:443/records"

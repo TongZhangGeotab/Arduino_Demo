@@ -14,20 +14,25 @@ import dig_calls
 SEND_DIG = False
 
 CYCLE_TIME = 0.1
-POLL_COUNT = 50
+POLL_COUNT_DISTANCE = 100
+POLL_COUNT_POTENTIOMETER = 25
 SERIAL_NO = 'CXF7216F55ED'
 
 # Arduino pins
 BUTTON_PIN = 12
-POTENTIOMETER_PIN = 0
-LED_PIN = 7
 TRIG_PIN = 11
 ECHO_PIN = 10
+POTENTIOMETER_PIN = 0
+IGNITION_LED_PIN = 7
+SPEEDING_PIN = 6
+SPEEDING_ABOVE_MAX_PIN = 5
 
 # Message codes
 IGNITION_CODE = 10000
 ENGINE_SPEED_CODE = 107
 ODOMETER_CODE = 5
+SPEEDING_CODE = 35307
+SPEEDING_ABOVE_MAX_CODE = 35308
 
 # Callback data indices
 CB_PIN_MODE = 0
@@ -68,7 +73,7 @@ async def button_press_coroutine(data):
                 print('Ignition Off')
                 state['ignition'] = 0
 
-            board.digital_write(LED_PIN, state['ignition'])
+            board.digital_write(IGNITION_LED_PIN, state['ignition'])
             
             # DIG call
             if SEND_DIG:
@@ -86,8 +91,7 @@ async def potentiometer_log_handler(data):
     value, date = data
     converted_value = value * 4000 / 800 / 0.25
     
-    date_time = datetime.fromtimestamp(date).strftime('%Y-%m-%d %H:%M:%S')
-    print(f'Pin: {POTENTIOMETER_PIN} Value: {value} Time Stamp: {date_time}')
+    print(f'Pin: {POTENTIOMETER_PIN} Value: {value}')
 
     if SEND_DIG:
         try:
@@ -102,26 +106,27 @@ async def distance_log_handler(data):
     Callback for logging the distance measurements
     '''
     readings = np.array([reading for reading in data if reading[1] != 0 and reading[0] < 200])
+    if len(readings) < 3:
+        return False
     distances = readings[:,0]
     timestamps = readings[:, 1]
 
-    plt.plot(timestamps, distances, label='distance', color='b')
+    ax1.plot(timestamps, distances, label='distance', color='b')
 
-    # velocities = np.diff(distances)
-    # accelerations = np.diff(velocities)
-    # plt.plot(timestamps[1:], velocities, label='Velocity')
-    # plt.plot(timestamps[1:-1], accelerations, label='Acceleration')
+    velocities = np.diff(distances)
+    ax2.plot(timestamps[1:], velocities, label='velocity', color = 'g')
+    # plt.plot(timestamps[2:], accelerations, label='acceleration', color='y')
     # plt.legend()
     
     log_data = await curve_logging_helper(distances, timestamps, [])
     log_data.append([distances[-1], timestamps[-1]])
 
     for log in log_data:
-        plt.plot(log[1], log[0], marker='o', markersize=5, color='red')
+        ax1.plot(log[1], log[0], marker='o', markersize=5, color='red')
 
         if SEND_DIG:
             try:
-                res = dig_calls.send_GenericStatusRecord(token=token, serialNo=SERIAL_NO, code=ODOMETER_CODE, value=int(log[0] / 100), timestamp=datetime.fromtimestamp(log[1]))
+                res = dig_calls.send_GenericStatusRecord(token=token, serialNo=SERIAL_NO, code=ODOMETER_CODE, value=int(log[0]), timestamp=datetime.fromtimestamp(log[1]))
                 assert res
             except AssertionError:
                 print('sending GenericStatusRecord failed')
@@ -133,7 +138,7 @@ async def curve_logging_helper(values, timestamps, max_diffs):
     '''
     Recursive helper function to find values with the maximum error
     '''
-    if len(values) == 1 or len(max_diffs) >= POLL_COUNT * CYCLE_TIME:
+    if len(values) == 1 or len(max_diffs) >= POLL_COUNT_DISTANCE * CYCLE_TIME / 2.5:
         return max_diffs
     slope = (values[-1] - values[0]) / (timestamps[-1] - timestamps[0])
     y_int = values[0] - timestamps[0] * slope
@@ -147,14 +152,46 @@ async def curve_logging_helper(values, timestamps, max_diffs):
     return max_diffs
 
 
+def speeding_check(x1, x0):
+    v1, t1 = x1
+    v0, t0 = x0
+
+    if v1 > 200 or v0 > 200:
+        return False
+    
+    speed = abs(v1 - v0)
+    print(speed)
+
+    if speed > 10:
+        if speed > 20:
+            code = SPEEDING_ABOVE_MAX_CODE
+        else:
+            code = SPEEDING_CODE
+
+        if t1 - state['last_speeding'] > 2.5:
+            state['last_speeding'] = t1
+            ax2.plot(t1, v1-v0, marker='o', markersize=5, color='m')
+            print(f'Speeding at: {speed}')
+
+            if SEND_DIG:
+                try:
+                    res = dig_calls.send_GenericStatusRecord(token=token, serialNo=SERIAL_NO, code=code, value=1, timestamp=datetime.now())
+                    assert res
+                except AssertionError:
+                    print('sending GenericStatusRecord failed')
+
+    return speed
+
 async def main(board):
     '''
     Main function
     '''
     # board.set_pin_mode_digital_input(BUTTON_PIN, callback=button_press_handler)
     board.set_pin_mode_analog_input(POTENTIOMETER_PIN)
-    board.set_pin_mode_digital_output(LED_PIN)
     board.set_pin_mode_sonar(TRIG_PIN, ECHO_PIN)
+    board.set_pin_mode_digital_output(IGNITION_LED_PIN)
+    board.set_pin_mode_digital_output(SPEEDING_PIN)
+    board.set_pin_mode_digital_output(SPEEDING_ABOVE_MAX_PIN)
 
     ticks = 0
     distance_readings = []
@@ -162,12 +199,25 @@ async def main(board):
         potentiometer_reading = board.analog_read(POTENTIOMETER_PIN)
         distance_reading = board.sonar_read(TRIG_PIN)
         distance_readings.append(distance_reading)
+        print(distance_reading)
 
-        if ticks % POLL_COUNT == 0 and ticks != 0:
-            print('Logging')
+        if len(distance_readings) > 2:
+            speed = speeding_check(distance_readings[-1], distance_readings[-2])
+            if speed > 20:
+                board.digital_write(SPEEDING_ABOVE_MAX_PIN, 1)
+            elif speed > 10:
+                board.digital_write(SPEEDING_PIN, 1)
+                board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
+            else:
+                board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
+                board.digital_write(SPEEDING_PIN, 0)
+
+        if ticks % POLL_COUNT_POTENTIOMETER == 0 and ticks != 0:
             loop.create_task(potentiometer_log_handler(potentiometer_reading))
-            loop.create_task(distance_log_handler(distance_readings))
-            distance_readings = []
+
+        if ticks % POLL_COUNT_DISTANCE == 0 and ticks != 0:
+            print('Logging Distance', datetime.now())
+            loop.create_task(distance_log_handler(distance_readings[-POLL_COUNT_DISTANCE:]))
 
         ticks += 1
         await asyncio.sleep(CYCLE_TIME)
@@ -190,13 +240,15 @@ loop = asyncio.get_event_loop()
 board = pymata4.Pymata4()
 state = {
     'ignition': False,
-    'distance': 0
+    'distance': 0,
+    'last_speeding': -5,
 }
 
 
 # Run the program
 try:
     start_time = datetime.now()
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
     loop.run_until_complete(main(board))
 except KeyboardInterrupt:
     board.shutdown()

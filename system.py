@@ -98,10 +98,13 @@ async def potentiometer_log_handler(data):
     Callback for logging potentiometer readings
     '''
     value, date = data
-    converted_value = int(value * 4000 / 800 / 0.25)
-    
-    print(f'Pin: {POTENTIOMETER_PIN} Value: {value}')
+    date_time = datetime.fromtimestamp(date)
 
+    # Convert by max_value to send / max_potentiometer value / DIG conversion factor
+    converted_value = int(value * 5000 / 1023 / 0.25)
+    print(f'Value: {value} | Converted Value: {converted_value*0.25} RPM | Timestamp: {date_time}')
+
+    # Send DIG call
     if SEND_DIG:
         try:
             res = dig_calls.send_GenericStatusRecord(
@@ -109,7 +112,7 @@ async def potentiometer_log_handler(data):
                 serialNo=SERIAL_NO,
                 code=ENGINE_SPEED_CODE,
                 value=converted_value,
-                timestamp=datetime.fromtimestamp(date))
+                timestamp=date_time)
             assert res
         except AssertionError:
             print('sending GenericStatusRecord failed')
@@ -119,23 +122,33 @@ async def distance_log_handler(data):
     '''
     Callback for logging the distance measurements
     '''
+    # Clean data for 0s and false spikes when sensor echo pin "misses" the trigger
     readings = np.array([reading for reading in data if reading[1] != 0 and reading[0] < 200])
     if len(readings) < 3:
         return False
     distances = readings[:,0]
     timestamps = readings[:, 1]
-
-    ax1.plot(timestamps, distances, label='distance', color='b')
-
     velocities = np.diff(distances)
+
+    # Plot Distance and velocity vs time actual arduino uses cm and s, we simulate as km and h
+    ax1.plot(timestamps, distances, label='distance', color='b')
     ax2.plot(timestamps[1:], velocities, label='velocity', color = 'g')
+    ax1.set_title('Distance vs Time')
+    ax1.set_xlabel('Time (h)')
+    ax1.set_ylabel('Distance (km)')
+    ax2.set_title('Velocity vs Time')
+    ax2.set_xlabel('Time (h)')
+    ax2.set_ylabel('Velocity (km/h)')
     
+    # Get the points of max error to log
     log_data = await curve_logging_helper(distances, timestamps, [])
     log_data.append([distances[-1], timestamps[-1]])
 
     for log in log_data:
+        # Plot point of max error
         ax1.plot(log[1], log[0], marker='o', markersize=5, color='red')
 
+        # Send the point through DIG
         if SEND_DIG:
             try:
                 res = dig_calls.send_GenericStatusRecord(
@@ -155,13 +168,20 @@ async def curve_logging_helper(values, timestamps, max_diffs):
     '''
     Recursive helper function to find values with the maximum error
     '''
+    # Prevent divide by 0 error or having too many points sending through DIG
     if len(values) == 1 or len(max_diffs) >= POLL_COUNT_DISTANCE * CYCLE_TIME / 2.5:
         return max_diffs
+    
+    # "Draw" line between first and last point
     slope = (values[-1] - values[0]) / (timestamps[-1] - timestamps[0])
     y_int = values[0] - timestamps[0] * slope
     preds = timestamps * slope + y_int
+
+    # Find point that is furthest from line
     diffs = np.abs(values - preds)
     i = np.argmax(diffs)
+
+    # If error is significant, add the point and keep logging
     if (diffs[i]) > 20:
         max_diffs.append([values[i], timestamps[i]])
         max_diffs = await curve_logging_helper(values[:i+1], timestamps[:i+1], max_diffs)
@@ -176,26 +196,32 @@ def speeding_check(x1, x0):
     v1, t1 = x1
     v0, t0 = x0
 
+    # Clean data
     if v1 > 200 or v0 > 200:
         return False
     
     speed = abs(v1 - v0)
-
+    
+    # Determine if speeding 
     if speed > 10:
-        board.digital_write(SPEEDING_PIN, 1)
+        # If speeding above maximum threshold
         if speed > 20:
             board.digital_write(SPEEDING_ABOVE_MAX_PIN, 1)
             board.digital_write(SPEEDING_PIN, 0)
             code = SPEEDING_ABOVE_MAX_CODE
+        # Speeding above posted limit, but below threshold
         else:
-            code = SPEEDING_CODE
+            board.digital_write(SPEEDING_PIN, 1)
             board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
+            code = SPEEDING_CODE
 
+        # Prevent sending multiple logs for the same speeding incident
         if t1 - state['last_speeding'] > 2:
             state['last_speeding'] = t1
             ax2.plot(t1, v1-v0, marker='o', markersize=5, color='m')
             print(f'Speeding at: {speed}')
 
+            # Send DIG all
             if SEND_DIG:
                 try:
                     res = dig_calls.send_GenericStatusRecord(
@@ -206,6 +232,7 @@ def speeding_check(x1, x0):
                     assert res
                 except AssertionError:
                     print('sending GenericStatusRecord failed')
+    # No speeding detected
     else:
         board.digital_write(SPEEDING_PIN, 0)
         board.digital_write(SPEEDING_ABOVE_MAX_PIN, 0)
@@ -214,30 +241,48 @@ async def main(board):
     '''
     Main function
     '''
+    # Button simulates ignition button - hold down to turn ignition on/off
     board.set_pin_mode_digital_input(BUTTON_PIN, callback=button_press_handler)
+    
+    # Potentiometer sets the simulated engine speed
     board.set_pin_mode_analog_input(POTENTIOMETER_PIN)
+
+    # Ultrasonic sensor simulates the odometer
     board.set_pin_mode_sonar(TRIG_PIN, ECHO_PIN)
+
+    # Blue LED shows state of ignition
     board.set_pin_mode_digital_output(IGNITION_LED_PIN)
+
+    # Yello LED on if speeding above posted limit
     board.set_pin_mode_digital_output(SPEEDING_PIN)
+
+    # Red LED on if speeding above maximum threshold
     board.set_pin_mode_digital_output(SPEEDING_ABOVE_MAX_PIN)
 
     ticks = 0
     distance_readings = []
     while True:        
+        # Read values from inputs
         potentiometer_reading = board.analog_read(POTENTIOMETER_PIN)
         distance_reading = board.sonar_read(TRIG_PIN)
         distance_readings.append(distance_reading)
 
+        # Constantly show the potentiomter output on the LCD
         lcd.clear()
-        lcd.set_cursor(6,0)
+        lcd.set_cursor(2, 0)
+        lcd.print('Pot Reading:')
+        lcd.set_cursor(6,1)
         lcd.print(str(potentiometer_reading[0]))
 
+        # Check for speeding
         if len(distance_readings) > 2:
             speeding_check(distance_readings[-1], distance_readings[-2])
 
+        # Log potentiometer value at set intervals
         if ticks % POLL_COUNT_POTENTIOMETER == 0 and ticks != 0:
             loop.create_task(potentiometer_log_handler(potentiometer_reading))
 
+        # Log the distance sensor values at set intervals
         if ticks % POLL_COUNT_DISTANCE == 0 and ticks != 0:
             print('Logging Distance', datetime.now())
             loop.create_task(distance_log_handler(distance_readings[-POLL_COUNT_DISTANCE:]))
@@ -272,9 +317,9 @@ state = {
 
 # Run the program
 try:
-    start_time = datetime.now()
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
     loop.run_until_complete(main(board))
 except KeyboardInterrupt:
+    lcd.clear()
     board.shutdown()
     print('Program Termintated')

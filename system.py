@@ -133,13 +133,7 @@ async def distance_log_handler(data):
     # Plot Distance and velocity vs time actual arduino uses cm and s, we simulate as km and h
     ax1.plot(timestamps, distances, label='distance', color='b')
     ax2.plot(timestamps[1:], velocities, label='velocity', color = 'g')
-    ax1.set_title('Distance vs Time')
-    ax1.set_xlabel('Time (h)')
-    ax1.set_ylabel('Distance (km)')
-    ax2.set_title('Velocity vs Time')
-    ax2.set_xlabel('Time (h)')
-    ax2.set_ylabel('Velocity (km/h)')
-    
+
     # Get the points of max error to log
     log_data = await curve_logging_helper(distances, timestamps, [])
     log_data.append([distances[-1], timestamps[-1]])
@@ -313,11 +307,17 @@ state = {
     'distance': 0,
     'last_speeding': 0,
 }
-
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
+ax1.set_title('Distance vs Time')
+ax1.set_xlabel('Time (h)')
+ax1.set_ylabel('Distance (km)')
+ax2.set_title('Velocity vs Time')
+ax2.set_xlabel('Time (h)')
+ax2.set_ylabel('Velocity (km/h)')
+plt.tight_layout()
 
 # Run the program
 try:
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
     loop.run_until_complete(main(board))
 except KeyboardInterrupt:
     lcd.clear()

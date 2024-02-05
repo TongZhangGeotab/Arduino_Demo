@@ -51,10 +51,10 @@ Odometry is logged every 10 seconds with curve logging, limited to 6 points per 
 5 = yellow LED - indicates speeding  
 6 = blue LED - indicates ignition state  
 7 = button - simulates turning on ignition  
-8 = D4 - LCD  
-9 = D5 - LCD  
-10 = D6 - LCD  
-11 = D7 - LCD  
+8 = D7 - LCD  
+9 = D6 - LCD  
+10 = D5 - LCD  
+11 = D4 - LCD  
 12 = E - LCD  
 13 = RS - LCD  
 

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import pathlib
 
 
 from pymata4 import pymata4
@@ -169,7 +170,7 @@ async def curve_logging_helper(values, timestamps, max_diffs):
     Recursive helper function to find values with the maximum error
     '''
     # Prevent divide by 0 error or having too many points sending through DIG
-    if len(values) == 1 or len(max_diffs) >= POLL_COUNT_DISTANCE * CYCLE_TIME / 2.5:
+    if len(values) == 1 or len(max_diffs) > POLL_COUNT_DISTANCE * CYCLE_TIME / 2:
         return max_diffs
     
     # "Draw" line between first and last point
@@ -216,7 +217,7 @@ def speeding_check(x1, x0):
             code = SPEEDING_CODE
 
         # Prevent sending multiple logs for the same speeding incident
-        if t1 - state['last_speeding'] > 2:
+        if t1 - state['last_speeding'] > 3:
             state['last_speeding'] = t1
             ax2.plot(t1, v1-v0, marker='o', markersize=5, color='m')
             print(f'Speeding at: {speed}')
@@ -321,6 +322,7 @@ ax2.set_title('Velocity vs Time')
 ax2.set_xlabel('Time (h)')
 ax2.set_ylabel('Velocity (km/h)')
 plt.tight_layout()
+pathlib.Path.mkdir('./logs', exist_ok=True)
 
 # Run the program
 try:

@@ -71,6 +71,6 @@ If the Arduino is behaving normally, this should've fixed the issue and you can 
 
 Since there aren't enough male-to-male wires, male-to-female wires were used to connect the LCD.
 
-![Alt text](images/schematic.png)
+![Alt text](images/tinkercad.png)
 
 ![Alt text](images/picture.png)

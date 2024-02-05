@@ -44,7 +44,7 @@ VSS, RS, and K to ground
 A to 3.3V
 
 LCD sometimes sends gibberish because the python library's initialization is unpredictable.  
-If this occurs, open the lcd_test.ino sketch in the Arduino IDE and upload it to the Arduino UNO.  
+If this occurs, open the lcd_test.ino sketch in the Arduino IDE and upload it to the Arduino UNO (make sure you install the LiquidCrystal Arduino library).  
 If the Arduino is behaving normally, this should've fixed the issue and you can run the Firmata sketch again.  
 
 ## Schematic

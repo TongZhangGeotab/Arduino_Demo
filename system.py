@@ -17,13 +17,19 @@ POLL_COUNT_DISTANCE = 100
 POLL_COUNT_POTENTIOMETER = 25
 
 # Arduino pins
-BUTTON_PIN = 12
-TRIG_PIN = 11
-ECHO_PIN = 10
+BUTTON_PIN = 7
+TRIG_PIN = 2
+ECHO_PIN = 3
 POTENTIOMETER_PIN = 0
-IGNITION_LED_PIN = 7
-SPEEDING_PIN = 6
-SPEEDING_ABOVE_MAX_PIN = 5
+IGNITION_LED_PIN = 6
+SPEEDING_PIN = 5
+SPEEDING_ABOVE_MAX_PIN = 4
+RS_PIN = 13
+E_PIN = 12
+D4_PIN = 11
+D5_PIN = 10
+D6_PIN = 9
+D7_PIN = 8
 
 # DIG constants and message codes
 SEND_DIG = False
@@ -300,7 +306,7 @@ if SEND_DIG:
 # Initialization
 loop = asyncio.get_event_loop()
 board = pymata4.Pymata4()
-lcd = LiquidCrystal(9, 8, 4, 3, 2, 13, board)
+lcd = LiquidCrystal(RS_PIN, E_PIN, D4_PIN, D5_PIN, D6_PIN, D7_PIN, board)
 state = {
     'ignition': False,
     'last_ignition': 0,

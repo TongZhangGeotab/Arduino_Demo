@@ -322,7 +322,7 @@ ax2.set_title('Velocity vs Time')
 ax2.set_xlabel('Time (h)')
 ax2.set_ylabel('Velocity (km/h)')
 plt.tight_layout()
-pathlib.Path.mkdir('./logs', exist_ok=True)
+pathlib.Path('./logs').mkdir(exist_ok=True)
 
 # Run the program
 try:

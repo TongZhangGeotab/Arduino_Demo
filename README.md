@@ -21,6 +21,26 @@ Create a virtual environment with `python -m venv venv`
 Activate the virtual environement with `./venv/Scripts/Activate.bat` for powershell or `source venv/bin/activate` for Mac or Linux  
 Run the system with `python system.py`
 
+## System Operation
+
+The push button simulates turning the ignition on and off - as indicated by the blue LED.  
+Holding down the button for at least 1 second toggles the state of the ignition (and LED).  
+
+The metal potentiometer simulates the engine speed - turning it increases the speed.  
+Values are mapped from 0 - 1023 to 0 - 5000 rpm when sent through DIG.  
+Engine speed is logged every 2.5 seconds.*  
+
+The LCD displays the raw input of the metal potentiometer.  
+The small blue potentiometer changes the contrast on the LCD.  
+
+The ultrasonic sensor simulates the odometer - since the behaviour can be unpredictable, spikes of over 200 cm are cleaned from the data.  
+The yellow and red LEDs indicate speeding, they turn on if the values detected by the ultrasonic sensor change too quickly.  
+Yellow represents speeding above the posted limit, while red represents speeding over the maximum threshold.  
+Speeding is logged at a maximum rate of 1 log per 3 seconds to prevent the same speeding instance being sent multiple times.
+Odometry is logged every 10 seconds with curve logging, limited to 6 points per log.*  
+
+*In reality, because of delay, the system runs ~2.5 times slower than expected - so 10 seconds is closer to 25 seconds
+
 ## Pinout
 
 0 = RK (don't use)  

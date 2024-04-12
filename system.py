@@ -33,7 +33,7 @@ D6_PIN = 9
 D7_PIN = 8
 
 # DIG constants and message codes
-SEND_DIG = False
+SEND_DIG = True
 SERIAL_NO = 'CXF7216F55ED'
 IGNITION_CODE = 10000
 ENGINE_SPEED_CODE = 107
@@ -308,6 +308,7 @@ if SEND_DIG:
 loop = asyncio.get_event_loop()
 board = pymata4.Pymata4()
 lcd = LiquidCrystal(RS_PIN, E_PIN, D4_PIN, D5_PIN, D6_PIN, D7_PIN, board)
+lcd.clear()
 state = {
     'ignition': False,
     'last_ignition': 0,

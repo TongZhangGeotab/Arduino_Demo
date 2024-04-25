@@ -97,7 +97,7 @@ async def button_press_coroutine(data):
                     )
                     assert res
                 except AssertionError:
-                    print('sending GeneritStatusRecord failed')
+                    print('sending GenericStatusRecord failed')
 
 
 async def potentiometer_log_handler(data):
